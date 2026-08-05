@@ -1,53 +1,63 @@
 # Deliverability OS
 
-A Real-Time Deliverability Intelligence Center platform. Deliverability OS goes beyond traditional static email validation by offering predictive intelligence, real-time SMTP handshakes, and auto-correction.
+A Real-Time Deliverability Intelligence Center platform for verifying and cleaning email lists securely and efficiently.
 
-## 🚀 Killer Features
+## ⚠️ Limitaciones de la Validación SMTP
+**Importante:** La validación mediante SMTP **no garantiza al 100% que un buzón exista**. Muchos proveedores de correo modernos (como Google Workspace, Microsoft 365 y otros) implementan políticas de "Catch-All" o devuelven silenciosamente respuestas positivas falsas (250 OK) para evitar la recolección de correos (Directory Harvest Attacks). Si el sistema no puede estar completamente seguro, clasificará el correo como `unknown` (desconocido).
 
-* **Zero-Unknown Guarantee:** Stop paying for timeouts. If the receiving server blocks the connection, the system automatically refunds the credit.
-* **Catch-All Intelligence:** Cross-references historical logs and B2B data to score the probability of actual delivery on Catch-All domains.
-* **Self-Healing Lists:** Detects typos (e.g., `@gmial.com`), corrects them on the fly, validates the new address, and returns the clean contact.
-* **Contextual Risk Scoring:** Adjusts validation thresholds based on campaign context (e.g., B2B cold outreach vs. B2C newsletters).
-* **Zero-Friction SDK:** A lightweight script for web forms that silently corrects typos before submission.
-* **Sender Health Monitor:** Audits your domain's DNS, SPF, DKIM, and Blacklist status concurrently.
+## 🛠️ Requisitos del Servidor (VPS)
+* Ubuntu 24.04 (o similar)
+* Docker y Docker Compose instalados
+* 2 vCPU y 8 GB RAM recomendados
+* **Puerto 25 (Salida) ABIERTO**: Necesario para el handshake SMTP.
 
-## 🛠️ Tech Stack
+## 💻 Desarrollo Local
 
-* **Frontend:** React 19, TypeScript, Vite, Tailwind CSS 4, Lucide React
-* **Backend:** Node.js, Express, TypeScript, native `net` and `dns` modules for SMTP
-* **Infrastructure:** Docker, Docker Compose
-
-## 💻 Local Development
-
-1. Install dependencies:
+1. Instalar dependencias:
    ```bash
    npm install
    ```
-2. Start the development server (runs both Vite and the Express backend):
+2. Configurar variables de entorno copiando el archivo de ejemplo:
+   ```bash
+   cp .env.example .env
+   ```
+3. Iniciar el entorno de desarrollo:
    ```bash
    npm run dev
    ```
-3. Open `http://localhost:3000` in your browser.
 
-## 🐳 Deployment (Docker & VPS)
+## 🐳 Despliegue en Producción (Docker)
 
-You can easily deploy this application to your VPS using Docker.
+Esta aplicación está optimizada para ejecutarse en contenedores Docker de forma segura.
 
-1. Clone or upload this repository to your VPS.
-2. Navigate to the project directory.
-3. Run the following command to build and start the container in detached mode:
-   ```bash
-   docker-compose up -d --build
-   ```
-4. The application will be accessible on port `80` of your VPS IP address.
+### 1. Variables de Entorno
+Crea un archivo `.env` en la raíz de tu proyecto en el VPS:
+```env
+PORT=3000
+NODE_ENV=production
+APP_URL=https://mi-dominio.com
+GEMINI_API_KEY=tu_clave_api_aqui
+```
+**ADVERTENCIA**: NUNCA publiques o subas tu archivo `.env` o la `GEMINI_API_KEY` a un repositorio público como GitHub.
 
-### ⚠️ IMPORTANT: Port 25 Requirement
+### 2. Construcción y Ejecución
+Ejecuta el siguiente comando para levantar la aplicación:
+```bash
+docker-compose up -d --build
+```
 
-This application performs real-time SMTP handshakes to validate emails. This requires **outbound traffic on Port 25** to be open.
-Most major cloud providers (AWS, DigitalOcean, Linode, Google Cloud) **block outbound Port 25 by default** to prevent spam. 
+### 3. Proxy Inverso y HTTPS
+El contenedor expone el puerto 3000 internamente. Para servirlo al público mediante tu dominio, debes configurar un Proxy Inverso (como Nginx o Traefik) en tu VPS que apunte al puerto interno del contenedor y gestione los certificados SSL (HTTPS) con Let's Encrypt. 
 
-To ensure the validation engine works:
-1. Contact your VPS provider's support team.
-2. Request them to unblock outbound Port 25.
-3. You may need to provide a justification (e.g., "I am hosting an email validation application that requires outbound SMTP handshakes to verify inbox existence").
-4. Configure reverse DNS (rDNS/PTR records) for your VPS IP address to improve validation success rates.
+### 4. Monitoreo y Actualizaciones
+Puedes comprobar que la aplicación está viva con el endpoint de salud:
+```bash
+curl http://localhost:3000/health
+```
+
+**Para actualizar el contenedor con nuevos cambios sin perder configuración:**
+```bash
+git pull origin main  # o como descargues tu código
+docker-compose up -d --build
+```
+Esto reconstruirá la imagen utilizando la nueva versión del código de forma ininterrumpida.

@@ -1,12 +1,26 @@
 version: '3.8'
 
 services:
-  deliverability-os:
+  deliverabilityos:
     build: .
     container_name: deliverability-os
     ports:
-      - "80:3000" # Maps port 80 on the VPS to 3000 in the container
+      - "127.0.0.1:3000:3000" # Expose only locally by default. For a direct public test without proxy, use "80:3000"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - app_network
     # Note: To perform SMTP handshakes, this container requires outbound access on port 25.
+
+networks:
+  app_network:
+    driver: bridge

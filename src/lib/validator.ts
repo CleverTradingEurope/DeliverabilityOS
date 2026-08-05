@@ -35,20 +35,7 @@ export async function validateEmail(originalEmail: string) {
   const isSyntaxValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(finalEmail);
   
   if (!isSyntaxValid) {
-    return {
-      originalEmail,
-      email: finalEmail,
-      status: 'undeliverable',
-      sub_status: 'invalid_syntax',
-      score: 0,
-      execution_time_ms: Date.now() - startTime,
-      value_adds: {
-        zero_waste_guarantee: { credit_charged: true, refunded: false, reason: "Definitive status" },
-        auto_correction: { has_suggestion: false },
-        catch_all_analysis: { is_catch_all: false },
-        smtp_transparency_log: { mx_used: 'none', response_code: 501, raw_server_message: '501 Bad address syntax' }
-      }
-    };
+    return createResponse(originalEmail, finalEmail, hasTypo, suggestedEmail, 'undeliverable', 'invalid_syntax', 0, 0, 'Bad address syntax', startTime);
   }
 
   const [_, domain] = finalEmail.split('@');
@@ -57,7 +44,7 @@ export async function validateEmail(originalEmail: string) {
     // 3. DNS MX Lookup
     const mxRecords = await dns.promises.resolveMx(domain);
     if (!mxRecords || mxRecords.length === 0) {
-        return createResponse(originalEmail, finalEmail, hasTypo, suggestedEmail, 'undeliverable', 'no_mx_records', 0, 'none', 550, 'DNS: No MX records found', startTime);
+        return createResponse(originalEmail, finalEmail, hasTypo, suggestedEmail, 'undeliverable', 'no_mx_records', 0, 550, 'DNS: No MX records found', startTime);
     }
 
     // Sort by priority (lowest priority number = highest priority server)
@@ -67,9 +54,6 @@ export async function validateEmail(originalEmail: string) {
     // 4. Real SMTP Handshake
     const smtpResult = await checkSMTP(finalEmail, mxHost);
     
-    // Simulate Catch-All check (a real system would check a random gibberish email to see if it's accepted)
-    // For this demonstration, we'll mark some domains dynamically based on responses.
-    
     return createResponse(
         originalEmail, 
         finalEmail, 
@@ -78,7 +62,6 @@ export async function validateEmail(originalEmail: string) {
         smtpResult.status, 
         smtpResult.sub_status, 
         smtpResult.score, 
-        mxHost, 
         smtpResult.responseCode, 
         smtpResult.rawMessage, 
         startTime
@@ -93,9 +76,8 @@ export async function validateEmail(originalEmail: string) {
         'unknown', 
         'dns_or_network_error', 
         0, 
-        'none', 
         0, 
-        `Network Error: ${error.message}`, 
+        `Network Error Encountered`, 
         startTime
     );
   }
@@ -106,53 +88,62 @@ function checkSMTP(email: string, mxHost: string): Promise<any> {
         const socket = net.createConnection(25, mxHost);
         let step = 0;
         let responseCode = 0;
-        let rawMessage = '';
+        let isClosed = false;
         
-        socket.setTimeout(3000); // 3 second timeout to keep it fast
+        socket.setTimeout(2500); // 2.5 second timeout to keep it fast
         
+        const closeSocket = () => {
+            if (!isClosed) {
+                isClosed = true;
+                socket.end();
+                socket.destroy();
+            }
+        };
+
         socket.on('data', (data) => {
             const response = data.toString();
-            rawMessage += response;
             const codeMatch = response.match(/^(\d{3})/);
             if (codeMatch) {
                 responseCode = parseInt(codeMatch[1], 10);
             }
 
             if (step === 0 && responseCode === 220) {
-                socket.write(`HELO deliverability-os.local\r\n`);
+                socket.write(`HELO deliverabilityos.local\r\n`);
                 step++;
             } else if (step === 1 && responseCode === 250) {
-                socket.write(`MAIL FROM:<verify@deliverability-os.local>\r\n`);
+                socket.write(`MAIL FROM:<verify@deliverabilityos.local>\r\n`);
                 step++;
             } else if (step === 2 && responseCode === 250) {
                 socket.write(`RCPT TO:<${email}>\r\n`);
                 step++;
             } else if (step === 3) {
                 socket.write(`QUIT\r\n`);
+                closeSocket();
+                
                 if (responseCode === 250 || responseCode === 251 || responseCode === 252) {
-                    resolve({ status: 'deliverable', sub_status: 'mailbox_exists', score: 95, responseCode, rawMessage: response.trim() });
+                    // We cannot state the mailbox definitively exists just because it accepted the connection (Catch-All)
+                    resolve({ status: 'unknown', sub_status: 'catch_all_unverified', score: 50, responseCode, rawMessage: 'Server accepted connection, unverified existence' });
                 } else if (responseCode >= 500 && responseCode < 600) {
-                    resolve({ status: 'undeliverable', sub_status: 'mailbox_not_found', score: 10, responseCode, rawMessage: response.trim() });
+                    resolve({ status: 'undeliverable', sub_status: 'mailbox_not_found', score: 10, responseCode, rawMessage: 'Mailbox not found' });
                 } else {
-                    resolve({ status: 'unknown', sub_status: 'unexpected_response', score: 50, responseCode, rawMessage: response.trim() });
+                    resolve({ status: 'unknown', sub_status: 'unexpected_response', score: 50, responseCode, rawMessage: 'Unexpected server response' });
                 }
             }
         });
 
         socket.on('error', (err: any) => {
-            let message = err.message;
-            if (err.code === 'ECONNREFUSED') message = 'Connection Refused (Port 25 likely blocked by Cloud Provider)';
-            resolve({ status: 'unknown', sub_status: 'connection_error', score: 0, responseCode: 0, rawMessage: message });
+            closeSocket();
+            resolve({ status: 'unknown', sub_status: 'connection_error', score: 0, responseCode: 0, rawMessage: 'Connection failed or blocked' });
         });
 
         socket.on('timeout', () => {
-            socket.destroy();
-            resolve({ status: 'unknown', sub_status: 'server_timeout', score: 0, responseCode: 0, rawMessage: 'Connection Timed Out (Port 25 blocked by Firewall/Provider)' });
+            closeSocket();
+            resolve({ status: 'unknown', sub_status: 'server_timeout', score: 0, responseCode: 0, rawMessage: 'Connection Timed Out' });
         });
     });
 }
 
-function createResponse(originalEmail: string, email: string, hasTypo: boolean, suggestedEmail: string, status: any, sub_status: string, score: number, mx_used: string, response_code: number, raw_server_message: string, startTime: number) {
+function createResponse(originalEmail: string, email: string, hasTypo: boolean, suggestedEmail: string, status: any, sub_status: string, score: number, response_code: number, raw_server_message: string, startTime: number) {
     return {
         originalEmail,
         email,
@@ -173,11 +164,11 @@ function createResponse(originalEmail: string, email: string, hasTypo: boolean, 
             confidence_score: hasTypo ? 99 : undefined
           },
           catch_all_analysis: {
-            is_catch_all: false, // For a real system, you ping a fake inbox like hrghs@domain.com
-            deliverability_probability_percentage: null
+            is_catch_all: sub_status === 'catch_all_unverified',
+            deliverability_probability_percentage: sub_status === 'catch_all_unverified' ? null : 0
           },
           smtp_transparency_log: {
-            mx_used,
+            mx_used: '[REDACTED]',
             response_code,
             raw_server_message
           }
