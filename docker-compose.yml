@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  deliverability-os:
+    build: .
+    container_name: deliverability-os
+    ports:
+      - "80:3000" # Maps port 80 on the VPS to 3000 in the container
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    # Note: To perform SMTP handshakes, this container requires outbound access on port 25.

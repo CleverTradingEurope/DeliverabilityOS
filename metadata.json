@@ -1,0 +1,6 @@
+{
+  "name": "Deliverability OS",
+  "description": "A Real-Time Deliverability Intelligence Center platform highlighting 6 killer features including Self-Healing Lists and Zero-Unknown Guarantees.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
