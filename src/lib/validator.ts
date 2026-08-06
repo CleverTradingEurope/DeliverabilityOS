@@ -49,10 +49,28 @@ export async function validateEmail(originalEmail: string) {
 
     // Sort by priority (lowest priority number = highest priority server)
     mxRecords.sort((a, b) => a.priority - b.priority);
-    const mxHost = mxRecords[0].exchange;
+    
+    // Limit to the top 2 MX records to prevent extremely long timeouts if all are tarpitting
+    const topMxRecords = mxRecords.slice(0, 2);
+    
+    let smtpResult: any = null;
+    let mxHost = '';
 
     // 4. Real SMTP Handshake
-    const smtpResult = await checkSMTP(finalEmail, mxHost);
+    for (const record of topMxRecords) {
+        mxHost = record.exchange;
+        smtpResult = await checkSMTP(finalEmail, mxHost);
+        
+        // If we connected and got an SMTP response (even an unexpected one), stop trying other MX servers.
+        // We only continue if we couldn't connect or timed out.
+        if (smtpResult.sub_status !== 'connection_error' && smtpResult.sub_status !== 'server_timeout') {
+            break;
+        }
+    }
+    
+    if (!smtpResult) {
+        smtpResult = { status: 'unknown', sub_status: 'connection_error', score: 0, responseCode: 0, rawMessage: 'Failed to connect to any MX server' };
+    }
     
     let finalStatus = smtpResult.status;
     let finalSubStatus = smtpResult.sub_status;
@@ -114,7 +132,7 @@ function checkSMTP(email: string, mxHost: string): Promise<any> {
         let responseCode = 0;
         let isClosed = false;
         
-        socket.setTimeout(2500); // 2.5 second timeout to keep it fast
+        socket.setTimeout(10000); // 10 second timeout
         
         const closeSocket = () => {
             if (!isClosed) {

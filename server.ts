@@ -21,6 +21,9 @@ async function startServer() {
     origin: appUrl !== '*' ? [appUrl] : '*',
   }));
 
+  // Trust proxy for rate limiting behind reverse proxies
+  app.set('trust proxy', 1);
+
   // Body parser with size limit
   app.use(express.json({ limit: '10kb' }));
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, CheckCircle2, XCircle, AlertTriangle, HelpCircle, Loader2, FileDown, ArrowLeft, Wand2, RefreshCcw } from 'lucide-react';
+import { Play, CheckCircle2, XCircle, AlertTriangle, HelpCircle, Loader2, FileDown, ArrowLeft, Wand2, RefreshCcw, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface ValidationResult {
@@ -336,7 +336,7 @@ export default function ValidationDashboard({ onBack }: { onBack: () => void }) 
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-6 bg-zinc-950 rounded-2xl shadow-xl border border-zinc-800 overflow-hidden flex flex-col h-72"
+              className="mt-6 bg-zinc-950 rounded-2xl shadow-xl border border-zinc-800 overflow-hidden flex flex-col h-72 shrink-0"
             >
               <div className="bg-zinc-900 px-4 py-3 border-b border-zinc-800 flex justify-between items-center">
                 <h3 className="text-sm font-mono text-zinc-400">SMTP Transparency Log & Data Object</h3>
@@ -344,6 +344,15 @@ export default function ValidationDashboard({ onBack }: { onBack: () => void }) 
                   <XCircle className="w-5 h-5" />
                 </button>
               </div>
+
+              {/* Timeout Warning */}
+              {(selectedResult.sub_status === 'server_timeout' || selectedResult.sub_status === 'connection_error') && (
+                <div className="bg-amber-900/30 border-b border-amber-900/50 px-4 py-2.5 flex items-start space-x-3 text-amber-200 text-xs">
+                  <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                  <p className="leading-relaxed"><strong className="text-amber-100">Provider Restriction:</strong> The target mail server did not respond or blocked the connection. Providers like Apple (iCloud), Yahoo, and Microsoft often delay or silently drop automated validation connections (anti-spam measures). <span className="text-amber-100 font-medium">The email might still be perfectly valid.</span> This check was marked as <em>Unknown</em> and credit was refunded.</p>
+                </div>
+              )}
+
               <div className="p-4 overflow-y-auto font-mono text-xs text-zinc-300">
                 <pre>{JSON.stringify(selectedResult, null, 2)}</pre>
               </div>
@@ -355,7 +364,7 @@ export default function ValidationDashboard({ onBack }: { onBack: () => void }) 
 
       {/* Footer / Version Indicator */}
       <footer className="py-6 text-center text-xs text-zinc-400 font-mono">
-        Version 1.1.202608060842
+        Version 1.3.202608061116
       </footer>
     </div>
   );
