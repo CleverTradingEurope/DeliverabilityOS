@@ -46,8 +46,13 @@ Ejecuta el siguiente comando para levantar la aplicación:
 docker-compose up -d --build
 ```
 
-### 3. Proxy Inverso y HTTPS
-El contenedor expone el puerto 3000 internamente. Para servirlo al público mediante tu dominio, debes configurar un Proxy Inverso (como Nginx o Traefik) en tu VPS que apunte al puerto interno del contenedor y gestione los certificados SSL (HTTPS) con Let's Encrypt. 
+### 3. Proxy Inverso y HTTPS Automatizado (Caddy)
+El archivo `docker-compose.yml` ya incluye un servicio de [Caddy](https://caddyserver.com/) configurado para actuar como Proxy Inverso automatizado. 
+Caddy obtendrá y renovará automáticamente los certificados SSL (HTTPS) de Let's Encrypt para tu dominio.
+
+Asegúrate de definir la variable `DOMAIN=mi-dominio.com` en tu archivo `.env`.
+
+*Nota:* Si necesitas acceder a la aplicación localmente sin pasar por Caddy, el puerto `3080` está mapeado al `127.0.0.1` en tu VPS (ej. `curl http://127.0.0.1:3080/health`).
 
 ### 4. Monitoreo y Actualizaciones
 Puedes comprobar que la aplicación está viva con el endpoint de salud:

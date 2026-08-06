@@ -5,7 +5,7 @@ services:
     build: .
     container_name: deliverability-os
     ports:
-      - "127.0.0.1:3000:3000" # Expose only locally by default. For a direct public test without proxy, use "80:3000"
+      - "127.0.0.1:3080:3000" # Expose only locally by default on 3080
     env_file:
       - .env
     environment:
@@ -21,6 +21,30 @@ services:
       - app_network
     # Note: To perform SMTP handshakes, this container requires outbound access on port 25.
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    # Caddy will automatically provision HTTPS for the domain via Let's Encrypt
+    command: caddy reverse-proxy --from https://$$DOMAIN --to http://deliverabilityos:3000
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - app_network
+    depends_on:
+      - deliverabilityos
+
 networks:
   app_network:
     driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
