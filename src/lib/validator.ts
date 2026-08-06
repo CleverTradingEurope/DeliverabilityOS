@@ -35,7 +35,7 @@ export async function validateEmail(originalEmail: string) {
   const isSyntaxValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(finalEmail);
   
   if (!isSyntaxValid) {
-    return createResponse(originalEmail, finalEmail, hasTypo, suggestedEmail, 'undeliverable', 'invalid_syntax', 0, 0, 'Bad address syntax', startTime);
+    return createResponse(originalEmail, finalEmail, hasTypo, suggestedEmail, 'undeliverable', 'invalid_syntax', 0, 0, 'Bad address syntax', false, startTime);
   }
 
   const [_, domain] = finalEmail.split('@');
@@ -44,7 +44,7 @@ export async function validateEmail(originalEmail: string) {
     // 3. DNS MX Lookup
     const mxRecords = await dns.promises.resolveMx(domain);
     if (!mxRecords || mxRecords.length === 0) {
-        return createResponse(originalEmail, finalEmail, hasTypo, suggestedEmail, 'undeliverable', 'no_mx_records', 0, 550, 'DNS: No MX records found', startTime);
+        return createResponse(originalEmail, finalEmail, hasTypo, suggestedEmail, 'undeliverable', 'no_mx_records', 0, 550, 'DNS: No MX records found', false, startTime);
     }
 
     // Sort by priority (lowest priority number = highest priority server)
@@ -54,16 +54,39 @@ export async function validateEmail(originalEmail: string) {
     // 4. Real SMTP Handshake
     const smtpResult = await checkSMTP(finalEmail, mxHost);
     
+    let finalStatus = smtpResult.status;
+    let finalSubStatus = smtpResult.sub_status;
+    let finalScore = smtpResult.score;
+    let isCatchAll = false;
+
+    if (finalStatus === 'deliverable') {
+        // Mailbox accepted, let's verify if the domain is a catch-all
+        const randomEmail = `test_${Date.now()}_${Math.floor(Math.random() * 10000)}@${domain}`;
+        const randomResult = await checkSMTP(randomEmail, mxHost);
+        
+        if (randomResult.status === 'deliverable') {
+            isCatchAll = true;
+            // If the domain accepts everything, we can't be sure the real mailbox exists
+            finalStatus = 'unknown';
+            finalSubStatus = 'catch_all';
+            finalScore = 50;
+        } else {
+            // Random email rejected, but real email accepted! It definitively exists.
+            finalSubStatus = 'mailbox_exists';
+        }
+    }
+    
     return createResponse(
         originalEmail, 
         finalEmail, 
         hasTypo, 
         suggestedEmail, 
-        smtpResult.status, 
-        smtpResult.sub_status, 
-        smtpResult.score, 
+        finalStatus, 
+        finalSubStatus, 
+        finalScore, 
         smtpResult.responseCode, 
         smtpResult.rawMessage, 
+        isCatchAll,
         startTime
     );
 
@@ -78,6 +101,7 @@ export async function validateEmail(originalEmail: string) {
         0, 
         0, 
         `Network Error Encountered`, 
+        false,
         startTime
     );
   }
@@ -121,8 +145,7 @@ function checkSMTP(email: string, mxHost: string): Promise<any> {
                 closeSocket();
                 
                 if (responseCode === 250 || responseCode === 251 || responseCode === 252) {
-                    // We cannot state the mailbox definitively exists just because it accepted the connection (Catch-All)
-                    resolve({ status: 'unknown', sub_status: 'catch_all_unverified', score: 50, responseCode, rawMessage: 'Server accepted connection, unverified existence' });
+                    resolve({ status: 'deliverable', sub_status: 'accepted', score: 95, responseCode, rawMessage: 'Server accepted connection' });
                 } else if (responseCode >= 500 && responseCode < 600) {
                     resolve({ status: 'undeliverable', sub_status: 'mailbox_not_found', score: 10, responseCode, rawMessage: 'Mailbox not found' });
                 } else {
@@ -143,7 +166,7 @@ function checkSMTP(email: string, mxHost: string): Promise<any> {
     });
 }
 
-function createResponse(originalEmail: string, email: string, hasTypo: boolean, suggestedEmail: string, status: any, sub_status: string, score: number, response_code: number, raw_server_message: string, startTime: number) {
+function createResponse(originalEmail: string, email: string, hasTypo: boolean, suggestedEmail: string, status: any, sub_status: string, score: number, response_code: number, raw_server_message: string, isCatchAll: boolean, startTime: number) {
     return {
         originalEmail,
         email,
@@ -164,8 +187,8 @@ function createResponse(originalEmail: string, email: string, hasTypo: boolean, 
             confidence_score: hasTypo ? 99 : undefined
           },
           catch_all_analysis: {
-            is_catch_all: sub_status === 'catch_all_unverified',
-            deliverability_probability_percentage: sub_status === 'catch_all_unverified' ? null : 0
+            is_catch_all: isCatchAll,
+            deliverability_probability_percentage: isCatchAll ? null : (status === 'deliverable' ? 100 : 0)
           },
           smtp_transparency_log: {
             mx_used: '[REDACTED]',
