@@ -1,0 +1,82 @@
+name: Build and publish Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_GHCR: ghcr.io/${{ github.repository_owner }}/deliverabilityos
+  IMAGE_DOCKERHUB: clevertradingeurope/deliverabilityos
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract version info
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          VERSION="$SHORT_SHA"
+          # If this commit has an exact tag like v1.2.3, use it as the version
+          if git describe --tags --exact-match >/dev/null 2>&1; then
+            VERSION=$(git describe --tags --exact-match)
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub (optional)
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.IMAGE_GHCR }}:latest
+            ${{ env.IMAGE_GHCR }}:${{ steps.meta.outputs.VERSION }}
+            docker.io/${{ env.IMAGE_DOCKERHUB }}:latest
+            docker.io/${{ env.IMAGE_DOCKERHUB }}:${{ steps.meta.outputs.VERSION }}
+          # optionally enable build cache (requires registry support)
+          cache-from: type=registry,ref=${{ env.IMAGE_GHCR }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_GHCR }}:buildcache,mode=max
+
+      - name: Show published image info
+        run: |
+          echo "Published: ${{ env.IMAGE_GHCR }}:${{ steps.meta.outputs.VERSION }}"
+          echo "GHCR latest: ${{ env.IMAGE_GHCR }}:latest"
+
+      - name: (Optional) Make GHCR package public
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "If you need the GHCR package to be public so anyone (including your VPS) can pull without login, set the package visibility in GitHub UI or run the REST API with a token that has admin:org scope."
