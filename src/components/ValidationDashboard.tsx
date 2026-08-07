@@ -79,18 +79,25 @@ export default function ValidationDashboard({ onBack }: { onBack: () => void }) 
     let processed = 0;
     const currentResults: ValidationResult[] = [];
 
-    // Process in small batches for UI responsiveness
-    const batchSize = 3;
-    for (let i = 0; i < emails.length; i += batchSize) {
-      const batch = emails.slice(i, i + batchSize);
-      const batchResults = await Promise.all(batch.map(email => handleValidation(email)));
-      
-      currentResults.push(...batchResults);
-      processed += batch.length;
-      
-      setResults([...currentResults]);
-      setProgress(Math.round((processed / total) * 100));
-    }
+    // Process with a concurrency limit for responsiveness and speed
+    const CONCURRENCY = 5;
+    let index = 0;
+
+    const workers = Array(Math.min(CONCURRENCY, emails.length)).fill(null).map(async () => {
+      while (index < emails.length) {
+        const currentIndex = index++;
+        const email = emails[currentIndex];
+        const result = await handleValidation(email);
+        
+        currentResults.push(result);
+        processed++;
+        
+        setResults([...currentResults]);
+        setProgress(Math.round((processed / total) * 100));
+      }
+    });
+
+    await Promise.all(workers);
 
     setIsProcessing(false);
   };
@@ -364,7 +371,7 @@ export default function ValidationDashboard({ onBack }: { onBack: () => void }) 
 
       {/* Footer / Version Indicator */}
       <footer className="py-6 text-center text-xs text-zinc-400 font-mono">
-        Version 1.3.202608061116
+        Version 1.4.202608070930
       </footer>
     </div>
   );
