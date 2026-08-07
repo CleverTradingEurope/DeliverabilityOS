@@ -3,7 +3,6 @@ name: Build and publish Docker image
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -11,34 +10,20 @@ permissions:
   packages: write
 
 env:
-  IMAGE_GHCR: ghcr.io/clevertradingeurope/deliverabilityos
-  IMAGE_DOCKERHUB: clevertradingeurope/deliverabilityos
+  IMAGE: ghcr.io/clevertradingeurope/deliverabilityos
 
 jobs:
-  build-and-publish:
+  publish:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Set up QEMU
+      - name: Set up QEMU (optional, useful for multi-arch)
         uses: docker/setup-qemu-action@v2
 
-      - name: Set up Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Get version (short SHA or tag)
-        id: meta
-        run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ] || git describe --tags --exact-match >/dev/null 2>&1; then
-            VERSION=$(git describe --tags --exact-match || echo "${GITHUB_REF_NAME}")
-          else
-            VERSION=$(echo "$GITHUB_SHA" | cut -c1-7)
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -47,29 +32,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Optional: login to Docker Hub (add secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN)
-      - name: Docker Hub login (optional)
-        run: |
-          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          else
-            echo "Docker Hub creds not set, skipping"
-          fi
-
-      - name: Build and push (multi-arch + cache)
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.IMAGE_GHCR }}:latest
-            ${{ env.IMAGE_GHCR }}:${{ steps.meta.outputs.VERSION }}
-            docker.io/${{ env.IMAGE_DOCKERHUB }}:latest
-            docker.io/${{ env.IMAGE_DOCKERHUB }}:${{ steps.meta.outputs.VERSION }}
-          cache-from: type=registry,ref=${{ env.IMAGE_GHCR }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_GHCR }}:buildcache,mode=max
-
-      - name: Show published images
-        run: |
-          echo "GHCR: ${{ env.IMAGE_GHCR }}:${{ steps.meta.outputs.VERSION }} and :latest"
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          # opcional: cache-from / cache-to para acelerar builds
