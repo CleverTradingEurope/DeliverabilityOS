@@ -371,7 +371,7 @@ export default function ValidationDashboard({ onBack }: { onBack: () => void }) 
 
       {/* Footer / Version Indicator */}
       <footer className="py-6 text-center text-xs text-zinc-400 font-mono">
-        Version 1.4.202608070930
+        Version 1.6.202608071030
       </footer>
     </div>
   );

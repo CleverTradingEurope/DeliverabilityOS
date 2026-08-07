@@ -131,6 +131,7 @@ function checkSMTP(email: string, mxHost: string): Promise<any> {
         let step = 0;
         let responseCode = 0;
         let isClosed = false;
+        let buffer = '';
         
         socket.setTimeout(10000); // 10 second timeout
         
@@ -143,17 +144,48 @@ function checkSMTP(email: string, mxHost: string): Promise<any> {
         };
 
         socket.on('data', (data) => {
-            const response = data.toString();
-            const codeMatch = response.match(/^(\d{3})/);
-            if (codeMatch) {
-                responseCode = parseInt(codeMatch[1], 10);
+            buffer += data.toString();
+            
+            // SMTP responses end with CRLF. The last line has the format "XYZ " (space instead of hyphen)
+            const lines = buffer.split('\r\n').filter(line => line.length > 0);
+            if (lines.length === 0) return;
+            
+            const lastLine = lines[lines.length - 1];
+            const codeMatch = lastLine.match(/^(\d{3})(?: |$)/);
+            
+            if (!codeMatch) {
+                // Multiline response is not yet complete
+                return;
+            }
+            
+            responseCode = parseInt(codeMatch[1], 10);
+            const fullResponse = buffer;
+            buffer = ''; // Reset buffer for the next step
+            
+            // Handle errors or rejections immediately
+            if (responseCode >= 400) {
+                socket.write(`QUIT\r\n`);
+                closeSocket();
+                
+                if (responseCode >= 500 && responseCode < 600) {
+                    if (step === 3) {
+                        resolve({ status: 'undeliverable', sub_status: 'mailbox_not_found', score: 10, responseCode, rawMessage: fullResponse.trim() });
+                    } else {
+                        resolve({ status: 'unknown', sub_status: 'server_rejected', score: 50, responseCode, rawMessage: fullResponse.trim() });
+                    }
+                } else {
+                    resolve({ status: 'unknown', sub_status: 'greylisted_or_blocked', score: 50, responseCode, rawMessage: fullResponse.trim() });
+                }
+                return;
             }
 
+            // State Machine
             if (step === 0 && responseCode === 220) {
-                socket.write(`HELO deliverabilityos.local\r\n`);
+                socket.write(`HELO dos.ideaclik.com\r\n`);
                 step++;
             } else if (step === 1 && responseCode === 250) {
-                socket.write(`MAIL FROM:<verify@deliverabilityos.local>\r\n`);
+                // Use the domain part of the email for a generic HELO string to appear less spammy, but still trackable
+                socket.write(`MAIL FROM:<verify@ideaclik.com>\r\n`);
                 step++;
             } else if (step === 2 && responseCode === 250) {
                 socket.write(`RCPT TO:<${email}>\r\n`);
@@ -164,11 +196,13 @@ function checkSMTP(email: string, mxHost: string): Promise<any> {
                 
                 if (responseCode === 250 || responseCode === 251 || responseCode === 252) {
                     resolve({ status: 'deliverable', sub_status: 'accepted', score: 95, responseCode, rawMessage: 'Server accepted connection' });
-                } else if (responseCode >= 500 && responseCode < 600) {
-                    resolve({ status: 'undeliverable', sub_status: 'mailbox_not_found', score: 10, responseCode, rawMessage: 'Mailbox not found' });
                 } else {
-                    resolve({ status: 'unknown', sub_status: 'unexpected_response', score: 50, responseCode, rawMessage: 'Unexpected server response' });
+                    resolve({ status: 'unknown', sub_status: 'unexpected_response', score: 50, responseCode, rawMessage: fullResponse.trim() });
                 }
+            } else {
+                socket.write(`QUIT\r\n`);
+                closeSocket();
+                resolve({ status: 'unknown', sub_status: 'unexpected_response', score: 50, responseCode, rawMessage: fullResponse.trim() });
             }
         });
 
